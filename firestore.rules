@@ -1,0 +1,105 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Master Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isOwnerEmail() {
+      return isSignedIn() && 
+             request.auth.token.email == 'maneluxurymovie@gmail.com' && 
+             request.auth.token.email_verified == true;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Entity Validation Blueprints ---
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'price', 'categoryId', 'imageUrl', 'isAvailable', 'isPopular', 'isSpecial', 'createdAt', 'updatedAt']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.price is number && data.price >= 0 &&
+             data.categoryId is string &&
+             data.imageUrl is string &&
+             data.isAvailable is bool &&
+             data.isPopular is bool &&
+             data.isSpecial is bool &&
+             (data.get('description', '') is string) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['name']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 50;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['customerName', 'customerPhone', 'customerAddress', 'items', 'totalAmount', 'status', 'createdAt']) &&
+             data.customerName is string && data.customerName.size() > 0 &&
+             data.customerPhone is string && data.customerPhone.size() >= 10 &&
+             data.customerAddress is string && data.customerAddress.size() >= 5 &&
+             data.items is list && data.items.size() > 0 &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.status in ['New', 'Confirmed', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'] &&
+             data.createdAt == request.time;
+    }
+
+    // --- Match Blocks ---
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidProduct(incoming());
+      allow update: if isAdmin() && isValidProduct(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidCategory(incoming());
+      allow update: if isAdmin() && isValidCategory(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidOrder(incoming()) && incoming().status == 'New';
+      allow update: if isAdmin() && isValidOrder(incoming()) && (
+        incoming().createdAt == existing().createdAt &&
+        incoming().totalAmount == existing().totalAmount
+      );
+      allow delete: if false;
+    }
+
+    match /admins/{adminId} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == adminId);
+      allow create: if isOwnerEmail() && request.auth.uid == adminId;
+      allow delete: if false;
+    }
+  }
+}

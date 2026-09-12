@@ -1,0 +1,6 @@
+{
+  "name": "Nasta Express",
+  "description": "Premium authentic breakfast and snacks delivered fresh. Order your favorite Nasta via WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
